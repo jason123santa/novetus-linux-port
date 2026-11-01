@@ -1,0 +1,22 @@
+# Build directories
+build/
+build-*/
+*.o
+*.a
+
+# Qt / CMake generated
+CMakeCache.txt
+CMakeFiles/
+moc_*.cpp
+qrc_*.cpp
+
+# Compiled binaries (deployed to data/bin instead)
+novetus-qt
+novetus-native
+
+# Editor/OS noise
+*.swp
+.DS_Store
+
+# Not published with the repository
+decompiled-src/

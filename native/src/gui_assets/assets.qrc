@@ -1,0 +1,19 @@
+<RCC>
+  <qresource prefix="/assets">
+    <file>extracted/NovetusLauncher.Properties.Resources/N.png</file>
+    <file>logo.png</file>
+    <file>playsolo.png</file>
+    <file>playsolo_hover.png</file>
+    <file>playsolo_click.png</file>
+    <file>joinserver.png</file>
+    <file>joinserver_hover.png</file>
+    <file>joinserver_click.png</file>
+    <file>startserver.png</file>
+    <file>startserver_hover.png</file>
+    <file>startserver_click.png</file>
+    <file>refresh.png</file>
+    <file>refresh_hover.png</file>
+    <file>search.png</file>
+    <file>search_hover.png</file>
+  </qresource>
+</RCC>
