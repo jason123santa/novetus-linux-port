@@ -9,7 +9,7 @@
 > components (web proxy, UPnP, server browser). Not affiliated with or
 > endorsed by the Novetus or Roblox projects.
 
-A native Linux port of the [Novetus](https://github.com/RocketClocks/Novetus)
+A native Linux port of the [Novetus](https://github.com/Novetus/Novetus_src)
 Roblox client launcher — a ground-up C++17/Qt6 rewrite with no .NET runtime,
 running the original Roblox clients through Wine.
 
