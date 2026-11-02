@@ -7,6 +7,7 @@
 #include <QGroupBox>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QProcess>
 #include <QDir>
 #include <QFileInfo>
 #include <QDateTime>
@@ -321,15 +322,45 @@ ExtendedWindow::ExtendedWindow(QWidget *parent)
     connect(m_mapsTree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *it, int) {
         if (!it || !it->parent()) return;
         const QString map = it->text(0);
-        const QString path = Paths::mapsDir + "/" + it->parent()->text(0) + "/" + map;
+        QString rel;
+        // walk the parent chain but skip the tree's root node ("maps") — the
+        // root is not part of the on-disk relative path
+        for (QTreeWidgetItem *p = it->parent(); p && p->parent(); p = p->parent()) {
+            rel = p->text(0) + (rel.isEmpty() ? QString() : "/" + rel);
+        }
+        const QString path = Paths::mapsDir + "/" + rel + "/" + map;
         m_userConfig->saveSetting("Map", map);
         m_userConfig->saveSetting("MapPath", path);
-        m_userConfig->saveSetting("MapPathSnip", "maps/" + it->parent()->text(0) + "/" + map);
+        m_userConfig->saveSetting("MapPathSnip", "maps/" + rel + "/" + map);
         m_selectedMapLabel->setText(map);
-        // The original shows a map description here; files don't carry metadata.
-        m_mapDesc->setPlainText("Selected map: " + map + "\nPath: " + path);
+        // LoadMapDesc parity: <map without extension>_desc.txt next to the map
+        QString desc;
+        QString stripped = path;
+        stripped.replace(".rbxl.bz2", "").replace(".rbxlx.bz2", "")
+                .replace(".rbxlx", "").replace(".rbxl", "");
+        const QString descPath = stripped + "_desc.txt";
+        QFile df(descPath);
+        if (df.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            desc = QString::fromUtf8(df.readAll());
+        }
+        m_mapDesc->setPlainText(desc.isEmpty()
+            ? ("Selected map: " + map + "\nPath: " + path) : desc);
         loadServerInfo();
         logLine("Selected map: " + map);
+        // Client.DecompressMap() parity: selecting a compressed map unpacks
+        // it immediately so client/solo launches have the .rbxl available.
+        if (map.endsWith(".bz2") && !QFileInfo::exists(path.left(path.size() - 4))) {
+            QProcess bz;
+            bz.start("/bin/sh", {"-c", "bunzip2 -c \"$1\" > \"$2\"", "sh", path,
+                                 path.left(path.size() - 4)});
+            bz.waitForFinished(120000);
+            if (bz.exitStatus() == QProcess::NormalExit && bz.exitCode() == 0) {
+                logLine("Decompressed map to " + path.left(path.size() - 4));
+            } else {
+                logLine("ERROR - map decompression failed: "
+                        + QString::fromUtf8(bz.readAllStandardError()));
+            }
+        }
     });
     m_pages->addWidget(maps);
 
@@ -415,9 +446,10 @@ ExtendedWindow::ExtendedWindow(QWidget *parent)
     m_styleBox->setGeometry(459, 30, 103, 21);
     m_styleBox->addItems({"None", "Extended", "Compact", "Stylish"});
     m_styleBox->setCurrentIndex(std::clamp(m_userConfig->readSettingInt("LauncherStyle"), 0, 3));
-    connect(m_styleBox, &QComboBox::currentIndexChanged, this, [this](int i) {
+    connect(m_styleBox, &QComboBox::activated, this, [this](int i) {
         m_userConfig->saveSettingInt("LauncherStyle", i);
-        logLine("Launcher style set to " + m_styleBox->itemText(i) + " — restart to apply.");
+        logLine("Launcher style set to " + m_styleBox->itemText(i) + ". Restarting...");
+        GuiShared::restartLauncher();
     });
     // Wine launch settings (WineCommand / WinePrefix in config.json)
     auto *wineCmdLabel = makeLabel(options, 8, 71, 88, 16, "Wine Command:", 8.25f);
@@ -604,26 +636,26 @@ void ExtendedWindow::loadMaps(const QString &filter)
 {
     m_mapsTree->clear();
     auto *top = new QTreeWidgetItem(m_mapsTree, {"maps"});
-    QDir maps(Paths::mapsDir);
-    const QRegularExpression re(QRegularExpression::wildcardToRegularExpression(filter),
-                                QRegularExpression::CaseInsensitiveOption);
-    for (const QFileInfo &fi :
-         maps.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name)) {
-        if (!fi.suffix().startsWith("rbxl")) continue;
-        if (!filter.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
-        new QTreeWidgetItem(top, {fi.fileName()});
-    }
-    for (const QString &sub : maps.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
-        QTreeWidgetItem *cat = nullptr;
-        QDir subDir(Paths::mapsDir + "/" + sub);
-        for (const QFileInfo &fi :
-             subDir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot, QDir::Name)) {
-            if (!fi.suffix().startsWith("rbxl")) continue;
-            if (!filter.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
-            if (!cat) cat = new QTreeWidgetItem(top, {sub});
-            new QTreeWidgetItem(cat, {fi.fileName()});
-        }
-    }
+    const QRegularExpression re(
+        filter.isEmpty() ? QString()
+                         : QRegularExpression::wildcardToRegularExpression(filter),
+        QRegularExpression::CaseInsensitiveOption);
+    std::function<void(QTreeWidgetItem *, const QDir &)> addDir =
+        [&](QTreeWidgetItem *parent, const QDir &dir) {
+            // TreeNodeHelper.CreateDirectoryNode parity: subdirectories
+            // first (at any depth), then matching files
+            for (const QString &sub :
+                 dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+                auto *cat = new QTreeWidgetItem(parent, {sub});
+                addDir(cat, QDir(dir.absoluteFilePath(sub)));
+            }
+            for (const QFileInfo &fi : dir.entryInfoList(QDir::Files, QDir::Name)) {
+                if (!fi.completeSuffix().startsWith("rbxl")) continue;
+                if (!filter.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
+                new QTreeWidgetItem(parent, {fi.fileName()});
+            }
+        };
+    addDir(top, QDir(Paths::mapsDir));
     top->setExpanded(true);
 }
 

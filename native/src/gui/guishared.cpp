@@ -1,5 +1,8 @@
 #include "guishared.h"
 
+#include <QCoreApplication>
+#include <QProcess>
+
 #include <QFile>
 #include <QDir>
 #include <QFileInfo>
@@ -97,6 +100,14 @@ static QString decodeSplashTokens(QString text, const QString &playerName)
         .replace("[normal]", "")
         .replace("[stylish]", "");
     return text;
+}
+
+void restartLauncher()
+{
+    // RestartApp parity: re-exec this binary with no arguments and quit.
+    const QString exe = QCoreApplication::applicationFilePath();
+    QProcess::startDetached(exe, {});
+    QCoreApplication::quit();
 }
 
 QString pickSplash(const Config *user)

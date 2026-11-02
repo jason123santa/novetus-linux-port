@@ -4,7 +4,9 @@
 
 #include <QDir>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QStringList>
+#include <QFileInfo>
 
 namespace {
 
@@ -80,6 +82,36 @@ QString toWinePath(const QString &posixPath)
     QString windows = posixPath;
     windows.replace(QLatin1Char('/'), QLatin1Char('\\'));
     return QLatin1String("Z:") + windows;
+}
+
+void applyWineEnvironment(QProcessEnvironment &env)
+{
+    const QString wine = wineCommandProgram();
+    const QDir binDir = QFileInfo(wine).absoluteDir();
+    // Runner layout: <runner>/files/bin/wine with libraries in ../lib
+    if (binDir.dirName() != "bin" || !binDir.exists("wine")) {
+        return;
+    }
+    QDir libDir(binDir);
+    if (!libDir.cdUp() || !QFileInfo(libDir.absoluteFilePath("lib/wine")).isDir()) {
+        return;
+    }
+    const QString lib = libDir.absoluteFilePath("lib");
+    QStringList dllPaths;
+    for (const char *sub : {"x86_64-windows", "vkd3d-proton", "dxvk",
+                            "i386-windows", "x86_64-unix", "i386-unix", "wine"}) {
+        const QString p = lib + "/wine/" + sub;
+        if (QFileInfo(p).isDir()) dllPaths << p;
+    }
+    if (dllPaths.isEmpty()) {
+        return;
+    }
+    const QString existing = env.value("WINEDLLPATH");
+    QStringList merged = dllPaths;
+    if (!existing.isEmpty()) {
+        merged << existing;
+    }
+    env.insert("WINEDLLPATH", merged.join(":"));
 }
 
 } // namespace LinuxCompat

@@ -1,5 +1,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDebug>
+#include <QPalette>
 #include "core/paths.h"
 #include "core/config.h"
 #include "guishared.h"
@@ -13,13 +15,24 @@
 
 int main(int argc, char **argv)
 {
-    // Follow the desktop theme (SystemColors behavior of the original app)
-    // when launched outside a full Plasma session.
-    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORMTHEME")) {
-        qputenv("QT_QPA_PLATFORMTHEME", "kde");
-    }
+    // Force the built-in light Fusion style: the original launcher is a light
+    // WinForms app, and desktop dark themes (KDE) made it unreadable.
+    // Unset the platform theme before QApplication reads it.
+    qunsetenv("QT_QPA_PLATFORMTHEME");
     QApplication app(argc, argv);
     Paths::init();
+    app.setStyle("Fusion");
+    QPalette light = app.style()->standardPalette();
+    light.setColor(QPalette::Window, QColor(240, 240, 240));
+    light.setColor(QPalette::Base, Qt::white);
+    light.setColor(QPalette::Button, QColor(240, 240, 240));
+    light.setColor(QPalette::WindowText, QColor(0, 0, 0));
+    light.setColor(QPalette::Text, QColor(0, 0, 0));
+    light.setColor(QPalette::ButtonText, QColor(0, 0, 0));
+    light.setColor(QPalette::PlaceholderText, QColor(120, 120, 120));
+    light.setColor(QPalette::HighlightedText, Qt::white);
+    light.setColor(QPalette::Highlight, QColor(48, 140, 198));
+    app.setPalette(light);
 
     QCommandLineParser parser;
     parser.setOptionsAfterPositionalArgumentsMode(QCommandLineParser::ParseAsOptions);

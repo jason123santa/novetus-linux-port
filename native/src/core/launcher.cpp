@@ -6,6 +6,7 @@
 #include "crypto.h"
 
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -312,9 +313,16 @@ bool Launcher::launch(ScriptType type, bool no3d, bool nomap, const QString &map
             // MapPath in the config may point under maps/ via MapPathSnip logic;
             // resolve relative names against the maps dir when needed.
             if (!QFileInfo::exists(mapPath) && !map.isEmpty()) {
-                const QString candidate = Paths::mapsDir + "/" + map;
-                if (QFileInfo::exists(candidate)) {
-                    mapPath = candidate;
+                // search the whole maps tree (maps can live in nested folders)
+                QString found;
+                QDirIterator it(Paths::mapsDir, {map}, QDir::Files,
+                                QDirIterator::Subdirectories);
+                while (it.hasNext()) {
+                    found = it.next();
+                    break;
+                }
+                if (!found.isEmpty()) {
+                    mapPath = found;
                 }
             }
         }
@@ -399,6 +407,9 @@ bool Launcher::launch(ScriptType type, bool no3d, bool nomap, const QString &map
     }
 
     log("Client Loaded.");
+    if (m_ctx.adminMode || m_ctx.userConfig->readSettingBool("AdditionalDebug")) {
+        log("Starting Process " + clientEXEDir + " " + args);
+    }
     if (type == ScriptType_Client && !m_ctx.adminMode && !info.alreadyHasSecurity) {
         if (!checkClientMD5(info, m_ctx.clientName) || !checkScriptMD5(info, m_ctx.clientName)) {
             log("ERROR - Failed to launch Novetus. (The client has been detected as modified. [Client.LaunchRBXClient])");
@@ -429,7 +440,31 @@ bool Launcher::openClient(ScriptType type, const QString &rbxexe, const QString 
     proc.setWorkingDirectory(QFileInfo(rbxexe).absolutePath());
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("WINEPREFIX", winePrefix);
+    LinuxCompat::applyWineEnvironment(env);
     proc.setProcessEnvironment(env);
+
+    // Old clients probe video memory via DirectDraw/wined3d, which reports
+    // 0MB on some runner builds (GE-Proton), triggering the "requires a
+    // graphics card with 16MB" warning. The wined3d registry override pins
+    // the reported size; the value is user-supplied through the
+    // NOVETUS_VIDEO_MEMORY env variable (in MB) — nothing is hard-coded.
+    const QString videoMemory = qEnvironmentVariable("NOVETUS_VIDEO_MEMORY");
+    bool videoMemoryValid = false;
+    const int videoMemoryMb = videoMemory.toInt(&videoMemoryValid);
+    if (videoMemoryValid && videoMemoryMb > 0) {
+        QProcess memReg;
+        memReg.setProgram(LinuxCompat::wineCommandProgram());
+        memReg.setArguments(
+            QStringList(LinuxCompat::wineCommandPrefixArgs())
+            << QStringList{"reg", "add", "HKCU\\Software\\Wine\\Direct3D",
+                           "/v", "VideoMemorySize", "/t", "REG_SZ",
+                           "/d", QString::number(videoMemoryMb), "/f"});
+        memReg.setProcessEnvironment(env);
+        memReg.start();
+        memReg.waitForFinished(15000);
+        log("Set wined3d VideoMemorySize to " + QString::number(videoMemoryMb)
+            + " MB (NOVETUS_VIDEO_MEMORY).");
+    }
     proc.setProcessChannelMode(QProcess::ForwardedChannels);
     proc.startDetached();
     return true;

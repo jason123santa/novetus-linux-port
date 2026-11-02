@@ -27,6 +27,10 @@ ScriptContext makeContext(const Ui &ui, ScriptType type, const QString &address 
 bool launchGame(const Ui &ui, ScriptType type, bool no3d, QWidget *msgParent);
 QString computeTripcode();
 QString pickSplash(const Config *user); // date-based special splash else random
+
+// RestartLauncherAfterSetting parity: re-execs the launcher so style and
+// startup settings changes apply.
+void restartLauncher();
 QString productVersion();      // "26.0.2"
 const QVector<ContentProviderDef> &contentProviders();
 QStringList contentProviderNames();

@@ -8,6 +8,8 @@
 #include <QHBoxLayout>
 #include <QFont>
 #include <QMessageBox>
+#include <QProcess>
+#include <functional>
 #include <QFileDialog>
 #include <QDesktopServices>
 #include <QUrl>
@@ -242,21 +244,22 @@ StylishWindow::StylishWindow(QWidget *parent)
             const QRegularExpression re(
                 f.isEmpty() ? QString() : QRegularExpression::wildcardToRegularExpression(f),
                 QRegularExpression::CaseInsensitiveOption);
-            for (const QFileInfo &fi : mapsDir.entryInfoList(QDir::Files, QDir::Name)) {
-                if (!fi.suffix().startsWith("rbxl")) continue;
-                if (!f.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
-                new QTreeWidgetItem(root, {fi.fileName()});
-            }
-            for (const QString &sub : mapsDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
-                QTreeWidgetItem *cat = nullptr;
-                for (const QFileInfo &fi : QDir(Paths::mapsDir + "/" + sub)
-                         .entryInfoList(QDir::Files, QDir::Name)) {
-                    if (!fi.suffix().startsWith("rbxl")) continue;
-                    if (!f.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
-                    if (!cat) cat = new QTreeWidgetItem(root, {sub});
-                    new QTreeWidgetItem(cat, {fi.fileName()});
-                }
-            }
+            std::function<void(QTreeWidgetItem *, const QDir &)> addDir =
+                [&](QTreeWidgetItem *parent, const QDir &dir) {
+                    // TreeNodeHelper.CreateDirectoryNode parity: subdirectories
+                    // first (at any depth), then matching files
+                    for (const QString &sub :
+                         dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name)) {
+                        auto *cat = new QTreeWidgetItem(parent, {sub});
+                        addDir(cat, QDir(dir.absoluteFilePath(sub)));
+                    }
+                    for (const QFileInfo &fi : dir.entryInfoList(QDir::Files, QDir::Name)) {
+                        if (!fi.completeSuffix().startsWith("rbxl")) continue;
+                        if (!f.isEmpty() && !re.match(fi.fileName()).hasMatch()) continue;
+                        new QTreeWidgetItem(parent, {fi.fileName()});
+                    }
+                };
+            addDir(root, QDir(Paths::mapsDir));
             root->setExpanded(true);
         };
         reloadMaps();
@@ -267,11 +270,22 @@ StylishWindow::StylishWindow(QWidget *parent)
                 [this, reloadMaps](QTreeWidgetItem *it, int) {
             if (!it || !it->parent()) return;
             const QString map = it->text(0);
-            const QString path = Paths::mapsDir + "/" + it->parent()->text(0) + "/" + map;
+            QString rel;
+            for (QTreeWidgetItem *p = it->parent(); p && p->parent(); p = p->parent()) {
+                rel = p->text(0) + (rel.isEmpty() ? QString() : "/" + rel);
+            }
+            const QString path = Paths::mapsDir + "/" + rel + "/" + map;
             m_ui.user->saveSetting("Map", map);
             m_ui.user->saveSetting("MapPath", path);
-            m_ui.user->saveSetting("MapPathSnip", "maps/" + it->parent()->text(0) + "/" + map);
+            m_ui.user->saveSetting("MapPathSnip", "maps/" + rel + "/" + map);
             m_mapsDesc->setPlainText("Selected map: " + map);
+            // Client.DecompressMap() parity: unpack compressed maps on selection
+            if (map.endsWith(".bz2") && !QFileInfo::exists(path.left(path.size() - 4))) {
+                QProcess bz;
+                bz.start("/bin/sh", {"-c", "bunzip2 -c \"$1\" > \"$2\"", "sh", path,
+                                     path.left(path.size() - 4)});
+                bz.waitForFinished(120000);
+            }
             reloadMaps();
         });
         // launch buttons row
@@ -458,8 +472,9 @@ browser.exec();
         styleBox->setGeometry(568, 59, 107, 24);
         styleBox->addItems({"None", "Extended", "Compact", "Stylish"});
         styleBox->setCurrentIndex(std::clamp(m_ui.user->readSettingInt("LauncherStyle"), 0, 3));
-        connect(styleBox, &QComboBox::currentIndexChanged, this, [this, styleBox](int i) {
+        connect(styleBox, &QComboBox::activated, this, [this, styleBox](int i) {
             m_ui.user->saveSettingInt("LauncherStyle", i);
+            GuiShared::restartLauncher();
         });
         auto *vsep = new QFrame(w);
         vsep->setGeometry(254, 44, 5, 44);
