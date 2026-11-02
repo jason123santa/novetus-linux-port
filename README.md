@@ -74,6 +74,14 @@ Both can be overridden in the launcher's **OPTIONS** tab:
 
 Both are saved to `data/config/config.json` and apply from the next launch.
 
+## Screenshots
+
+![Extended launcher](screenshots/launcher-extended.png)
+
+![Character customization](screenshots/character-customization.png)
+
+![Settings](screenshots/settings.png)
+
 ## Features
 
 - **All three original launcher styles** — Extended, Compact and Stylish,
